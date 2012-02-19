@@ -1,0 +1,18 @@
+Sorry, no time to document right now. Read the source code or email me.
+
+You need at least:
+
+-Vala 0.14.0 or later
+-Gstreamer 0.10.something (probably like 0.10.26?)
+-Recent libmpdclient
+-An mpd server
+-An icecast or shoutcast server
+
+Q: Why did I write this?
+
+A: To push tags from mpd through this pipeline out-of-band.
+
+http://tiyukquellmalz.org/sean/stream.svg
+
+(This is my setup, and tribblify will replace the "gstreamer script" part.)
+
