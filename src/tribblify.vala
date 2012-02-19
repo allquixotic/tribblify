@@ -53,6 +53,7 @@ public class Main : GLib.Object
 	//mpd tunables
 	private static int mpdport = 6600;
 	private static string? mpdip = "localhost";
+	private static string? mpdpass = null;
 	private static int tagpoll = 4000;
 
 	//For updating tags
@@ -62,16 +63,17 @@ public class Main : GLib.Object
 
 	const OptionEntry[] entries =
 	{
-		{ "protocol",   'p',  0, OptionArg.STRING, ref protocol, "Protocol: shoutcast or icecast", "proto_name"},
-		{ "shout-ip",   's',  0, OptionArg.STRING, ref ip,       "Shoutcast/icecast IP/hostname",  "hostname"},
-		{ "shout-port", 'o',  0, OptionArg.INT,    ref port,     "Shoutcast/icecast port",         "uint"},
-		{ "password",   'd',  0, OptionArg.STRING, ref password, "Shoutcast/icecast password",     "password"},
-		{ "mount",      'm',  0, OptionArg.STRING, ref mount,    "Icecast mount point",            "mount"},
-		{ "bitrate",    'b',  0, OptionArg.INT,    ref bitrate,  "MP3 CBR bitrate",                "uint"},
-		{ "device",     'i',  0, OptionArg.STRING, ref device,   "PulseAudio source",              "device"},
-		{ "mpdip",      'z',  0, OptionArg.STRING, ref mpdip,    "mpd server hostname",            "hostname"},
-		{ "mpdport",    'r',  0, OptionArg.INT,    ref mpdport,  "mpd port",                       "uint"},
-		{ "tagpoll",    't',  0, OptionArg.INT,    ref tagpoll,  "Frequency of tag polling in msec", "uint"},
+		{ "protocol",       'p',  0, OptionArg.STRING, ref protocol, "Protocol: shoutcast or icecast",   "proto_name"},
+		{ "shout-ip",       's',  0, OptionArg.STRING, ref ip,       "Shoutcast/icecast IP/hostname",    "hostname"},
+		{ "shout-port",     'o',  0, OptionArg.INT,    ref port,     "Shoutcast/icecast port",           "uint"},
+		{ "shout-password", 'd',  0, OptionArg.STRING, ref password, "Shoutcast/icecast password",       "password"},
+		{ "mount",          'm',  0, OptionArg.STRING, ref mount,    "Icecast mount point",              "mount"},
+		{ "bitrate",        'b',  0, OptionArg.INT,    ref bitrate,  "MP3 CBR bitrate",                  "uint"},
+		{ "device",         'i',  0, OptionArg.STRING, ref device,   "PulseAudio source",                "device"},
+		{ "mpdip",          'z',  0, OptionArg.STRING, ref mpdip,    "mpd server hostname",              "hostname"},
+		{ "mpdport",        'r',  0, OptionArg.INT,    ref mpdport,  "mpd port",                         "uint"},
+		{ "mpd-password",   'w',  0, OptionArg.STRING, ref mpdpass,  "mpd password",                     "password"},
+		{ "tagpoll",        't',  0, OptionArg.INT,    ref tagpoll,  "Frequency of tag polling in msec", "uint"},
 		{null}
 	};
 
@@ -83,6 +85,16 @@ public class Main : GLib.Object
 
 		//Create connection to mpd
 		cnxn = new Connection(mpdip, mpdport, 60000);
+		if(cnxn == null)
+		{
+			stdout.printf("Error: Connection to mpd couldn't be established!");
+			exit(1);
+		}
+
+		if(mpdpass != null && mpdpass != "")
+		{
+			cnxn.run_password(mpdpass);
+		}
 
 		//Create gstreamer pipeline
 		pipe = new Pipeline("pipe");
@@ -273,51 +285,55 @@ public class Main : GLib.Object
 	private void update_tags()
 	{
 		bool changed = false;
-		Status sta = cnxn.run_status();
-		int songid = sta.song_id;
-		Song song = cnxn.run_get_queue_song_id(songid);
-		string artist = song.get_tag(TagType.ARTIST, 0);
-		string title = song.get_tag(TagType.TITLE, 0);
-		if(curr_artist == null || curr_artist != artist)
+		int songid;
+		Status? sta = cnxn.run_status();
+		if(sta != null)
 		{
-			curr_artist = (artist != null ? artist : "");
-			changed = true;
-		}
-
-		if(curr_title == null || curr_title != title)
-		{
-			curr_title = (title != null ? title : "");
-			changed = true;
-		}
-
-		if(changed)
-		{
-			stderr.printf("Artist: %s\nTitle: %s\n", artist, title);
-
-			//These are pointers because we're doing manual memory management
-			//The message and the event "own" their copies of the taglist
-			//And the bus "owns" its copy of the message.
-			TagList *list = new TagList();
-			list->add(TagMergeMode.REPLACE_ALL, Gst.TAG_ARTIST, artist, Gst.TAG_TITLE, title);
-			Gst.Event *evt = new Gst.Event.tag(list->copy());
-
-			//Commenting this for now, since the bus message does nothing.
-			/*Gst.Message *msg = new Gst.Message.tag(pulsesrc, list);
-			if(bus.post(msg))
+			songid = sta.song_id;
+			Song song = cnxn.run_get_queue_song_id(songid);
+			string artist = song.get_tag(TagType.ARTIST, 0);
+			string title = song.get_tag(TagType.TITLE, 0);
+			if(curr_artist == null || curr_artist != artist)
 			{
-				post_success = true;
-				//stderr.printf("Posted bus message for new tags\n");
+				curr_artist = (artist != null ? artist : "");
+				changed = true;
 			}
-			else
-			{
-				post_success = false;
-				stderr.printf("Failed to post bus message\n");
-			}*/
 
-			//I learned that the elements will probably ignore the bus message
-			//But that they will pay attention to this event
-			//So I'm sending an event, which is the REAL action here, not the message above.
-			pipe.send_event(evt);
+			if(curr_title == null || curr_title != title)
+			{
+				curr_title = (title != null ? title : "");
+				changed = true;
+			}
+
+			if(changed)
+			{
+				stderr.printf("Artist: %s\nTitle: %s\n", artist, title);
+
+				//These are pointers because we're doing manual memory management
+				//The message and the event "own" their copies of the taglist
+				//And the bus "owns" its copy of the message.
+				TagList *list = new TagList();
+				list->add(TagMergeMode.REPLACE_ALL, Gst.TAG_ARTIST, artist, Gst.TAG_TITLE, title);
+				Gst.Event *evt = new Gst.Event.tag(list->copy());
+
+				//Commenting this for now, since the bus message does nothing.
+				/*Gst.Message *msg = new Gst.Message.tag(pulsesrc, list);
+				if(bus.post(msg))
+				{
+					post_success = true;
+					//stderr.printf("Posted bus message for new tags\n");
+				}
+				else
+				{
+					post_success = false;
+					stderr.printf("Failed to post bus message\n");
+				}*/
+
+				//I learned that the elements will probably ignore the bus message
+				//But that they will pay attention to this event
+				//So I'm sending an event, which is the REAL action here, not the message above.
+				pipe.send_event(evt);
+			}
 		}
 	}
 
