@@ -1,7 +1,7 @@
 /* -*- Mode: C; indent-tabs-mode: t; c-basic-offset: 4; tab-width: 4 -*- */
 /*
- * main.c
- * Copyright (C) Sean McNamara 2012 <smcnam@gmail.com>
+ * tribblify.vala
+ * Copyright (C) Sean McNamara 2012-2018 <smcnam@gmail.com>
  * 
  * tribblify is free software: you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -19,7 +19,9 @@
 
 using GLib;
 using Gst;
-using Mpd;
+using Gst.Tags;
+using Gdk;
+using Wnck;
 
 extern void exit(int exit_code);
 
@@ -27,8 +29,8 @@ public class Main : GLib.Object
 {
 	private MainLoop? ml = null;
 	
-	//For libmpdclient
-	private Connection? cnxn = null;
+	//For libwnck
+	private Wnck.Screen? screen = null;
 
 	//For gstreamer
 	private Pipeline? pipe = null;
@@ -50,16 +52,14 @@ public class Main : GLib.Object
 	private static int bitrate = 128;
 	private static string? device = "output.monitor";
 
-	//mpd tunables
-	private static int mpdport = 6600;
-	private static string? mpdip = "localhost";
-	private static string? mpdpass = null;
+	//Wnck tunables
 	private static int tagpoll = 4000;
+	private static string? wmClass = "spotify";
+	private static int screenId = -1;
 
 	//For updating tags
 	private string? curr_artist  = null;
 	private string? curr_title   = null;
-	//private bool    post_success = false;
 
 	const OptionEntry[] entries =
 	{
@@ -70,30 +70,32 @@ public class Main : GLib.Object
 		{ "mount",          'm',  0, OptionArg.STRING, ref mount,    "Icecast mount point",              "mount"},
 		{ "bitrate",        'b',  0, OptionArg.INT,    ref bitrate,  "MP3 CBR bitrate",                  "uint"},
 		{ "device",         'i',  0, OptionArg.STRING, ref device,   "PulseAudio source",                "device"},
-		{ "mpdip",          'z',  0, OptionArg.STRING, ref mpdip,    "mpd server hostname",              "hostname"},
-		{ "mpdport",        'r',  0, OptionArg.INT,    ref mpdport,  "mpd port",                         "uint"},
-		{ "mpd-password",   'w',  0, OptionArg.STRING, ref mpdpass,  "mpd password",                     "password"},
+		{ "wmClass",        'z',  0, OptionArg.STRING, ref wmClass,  "WM_CLASS group/class name of Spotify",              "wmClass"},
+		{ "screenId",       'r',  0, OptionArg.INT,    ref screenId,  "Xorg Screen ID",                  "uint"},
 		{ "tagpoll",        't',  0, OptionArg.INT,    ref tagpoll,  "Frequency of tag polling in msec", "uint"},
 		{null}
 	};
 
 	public Main(string[] args)
 	{	
+		Gdk.init(ref args);
 		ml = new MainLoop(null, false);
 		
 		parse_opts(args);
 
-		//Create connection to mpd
-		cnxn = new Connection(mpdip, mpdport, 60000);
-		if(cnxn == null)
-		{
-			stdout.printf("Error: Connection to mpd couldn't be established!");
+		//Create connection to Xorg Screen via Wnck
+		screen = Wnck.Screen.get_default();
+		if(screen == null) {
+			stdout.printf("Error: Unable to open Xorg display! May need to set DISPLAY environment variable.");
 			exit(1);
 		}
 
-		if(mpdpass != null && mpdpass != "")
-		{
-			cnxn.run_password(mpdpass);
+		if(wmClass != null && wmClass != "") {
+			wmClass = wmClass.down();
+		}
+		else {
+			stdout.printf("Error: wmClass is null or empty!");
+			exit(1);
 		}
 
 		//Create gstreamer pipeline
@@ -134,7 +136,7 @@ public class Main : GLib.Object
 		//Link all the gstreamer elements together
 		pulsesrc.link_many(lamemp3enc, queue, shout2send);
 
-		//Ask mpd for the latest tags and push them through the pipeline if they changed
+		//Ask Wnck for the latest tags and push them through the pipeline if they changed
 		//4000 msec = 4 seconds is the frequency of this by default.
 		Timeout.add(tagpoll, () => 
             {
@@ -147,103 +149,33 @@ public class Main : GLib.Object
             {
 				stderr.printf("Setting pipeline state to PLAYING...\n");
 				StateChangeReturn scr = pipe.set_state(Gst.State.PLAYING);
-				string lala = "i dunno";
+				string status = "UNKNOWN";
 				switch(scr)
 				{
 					case StateChangeReturn.FAILURE:
-						lala = "FAILURE";
+						status = "FAILURE";
 						break;
 					case StateChangeReturn.SUCCESS:
-						lala = "SUCCESS";
+						status = "SUCCESS";
 						break;
 					case StateChangeReturn.ASYNC:
-						lala = "ASYNC";
+						status = "ASYNC";
 						break;
 					case StateChangeReturn.NO_PREROLL:
-						lala = "NO_PREROLL";
+						status = "NO_PREROLL";
 						break;
 				}
-				stderr.printf("Pipeline state set result: %s\n", lala);
+				stderr.printf("Pipeline state set result: %s\n", status);
 				return false;
 			});
-
-		//This will post the pipeline state to stderr every 10 seconds.
-		/*
-		Timeout.add(10000, () =>
-		            {
-						Gst.State st;
-						Gst.State pend;
-						StateChangeReturn scr = pipe.get_state(out st, out pend, Gst.CLOCK_TIME_NONE);
-						string lala = "i dunno";
-						string sst = "i dunno";
-						string spend = "i dunno";
-						switch(scr)
-						{
-							case StateChangeReturn.FAILURE:
-								lala = "FAILURE";
-								break;
-							case StateChangeReturn.SUCCESS:
-								lala = "SUCCESS";
-								break;
-							case StateChangeReturn.ASYNC:
-								lala = "ASYNC";
-								break;
-							case StateChangeReturn.NO_PREROLL:
-								lala = "NO_PREROLL";
-								break;
-						}
-
-						switch(st)
-						{
-							case Gst.State.VOID_PENDING:
-								sst = "VOID_PENDING";
-								break;
-							case Gst.State.NULL:
-								sst = "NULL";
-								break;
-							case Gst.State.READY:
-								sst = "READY";
-								break;
-							case Gst.State.PAUSED:
-								sst = "PAUSED";
-								break;
-							case Gst.State.PLAYING:
-								sst = "PLAYING";
-								break;
-						}
-
-						switch(pend)
-						{
-							case Gst.State.VOID_PENDING:
-								spend = "VOID_PENDING";
-								break;
-							case Gst.State.NULL:
-								spend = "NULL";
-								break;
-							case Gst.State.READY:
-								spend = "READY";
-								break;
-							case Gst.State.PAUSED:
-								spend = "PAUSED";
-								break;
-							case Gst.State.PLAYING:
-								spend = "PLAYING";
-								break;
-						}
-						
-						stderr.printf("Pipeline get_state results:\n\tCurrent: %s\n\tPending: %s\n\tReturn result:%s\n", 
-						              sst, spend, lala);
-
-						return true;
-					});*/
 
 		ml.run();
 	}
 
 	private void parse_opts(string[] args)
 	{
-		ctxt = new OptionContext(" - a stupid program");
-		ctxt.set_summary("Placeholder for program summary");
+		ctxt = new OptionContext(" - a program to send Spotify over Icecast2 using PulseAudio");
+		ctxt.set_summary("The purpose of tribblify is to run while streaming Spotify using the Linux client to PulseAudio, and send the captured audio to Icecast2.");
 		ctxt.set_description("Report all bugs to smcnam AT gmail DOT com");
 		ctxt.set_help_enabled(true);
 		ctxt.set_ignore_unknown_options(false);
@@ -260,80 +192,74 @@ public class Main : GLib.Object
 			stdout.printf("Failed to parse command line arguments\n");
 			exit(1);
 		}
-
-		stderr.printf("Options parsed:\n" +
-		              "protocol: %s\n" +
-		              "ip: %s\n" +
-		              "port: %d\n" +
-		              "password: %s\n" +
-		              "mount: %s\n" +
-		              "bitrate: %d\n" +
-		              "device: %s\n" +
-		              "mpdip: %s\n" +
-		              "mpdport: %d\n", 
-		              protocol,
-		              ip,
-		              port,
-		              password,
-		              mount,
-		              bitrate,
-		              device,
-		              mpdip,
-		              mpdport);
 	}
 
 	private void update_tags()
 	{
 		bool changed = false;
-		int songid;
-		Status? sta = cnxn.run_status();
-		if(sta != null)
-		{
-			songid = sta.song_id;
-			Song song = cnxn.run_get_queue_song_id(songid);
-			string artist = song.get_tag(TagType.ARTIST, 0);
-			string title = song.get_tag(TagType.TITLE, 0);
-			if(curr_artist == null || curr_artist != artist)
-			{
-				curr_artist = (artist != null ? artist : "");
-				changed = true;
-			}
+		screen.force_update();
+		unowned GLib.List<Wnck.Window> windows = screen.get_windows();
+		string? artist = null;
+		string? title = null;
 
-			if(curr_title == null || curr_title != title)
-			{
-				curr_title = (title != null ? title : "");
-				changed = true;
-			}
-
-			if(changed)
-			{
-				stderr.printf("Artist: %s\nTitle: %s\n", artist, title);
-
-				//These are pointers because we're doing manual memory management
-				//The message and the event "own" their copies of the taglist
-				//And the bus "owns" its copy of the message.
-				TagList *list = new TagList();
-				list->add(TagMergeMode.REPLACE_ALL, Gst.TAG_ARTIST, artist, Gst.TAG_TITLE, title);
-				Gst.Event *evt = new Gst.Event.tag(list->copy());
-
-				//Commenting this for now, since the bus message does nothing.
-				/*Gst.Message *msg = new Gst.Message.tag(pulsesrc, list);
-				if(bus.post(msg))
-				{
-					post_success = true;
-					//stderr.printf("Posted bus message for new tags\n");
+		foreach(Wnck.Window window in windows) {
+			//wmClass was already set to lowercase on startup
+			if(window.get_class_group_name().down() == wmClass) {
+				string? curr_window_name = window.get_name();
+				stderr.printf("Found %s window; name=%s\n", wmClass, curr_window_name);
+				string[] tokens = curr_window_name.split("-", 2);
+				if(tokens.length == 2) {
+					artist = tokens[0];
+					title = tokens[1];
 				}
-				else
-				{
-					post_success = false;
-					stderr.printf("Failed to post bus message\n");
-				}*/
-
-				//I learned that the elements will probably ignore the bus message
-				//But that they will pay attention to this event
-				//So I'm sending an event, which is the REAL action here, not the message above.
-				pipe.send_event(evt);
+				break;
 			}
+		}
+
+		if(artist == null || artist == "") {
+			artist = "Unknown Artist";
+		}
+		else {
+			artist = artist.strip();
+		}
+
+		if(title == null || title == "") {
+			title = "Unknown Title";
+		}
+		else {
+			title = title.strip();
+		}
+		
+		if(curr_artist == null || curr_artist != artist)
+		{
+			curr_artist = artist;
+			changed = true;
+		}
+
+		if(curr_title == null || curr_title != title)
+		{
+			curr_title = title;
+			changed = true;
+		}
+
+		stderr.printf("Changed: '%s'; Artist: '%s'; Title: '%s'\n", (changed ? "true" : "false"), curr_artist, curr_title);
+
+		if(changed)
+		{
+
+			//These are pointers because we're doing manual memory management
+			//The message and the event "own" their copies of the taglist
+			//And the bus "owns" its copy of the message.
+			TagList *list = new TagList.empty();
+			list->add(TagMergeMode.REPLACE_ALL, Gst.Tags.ARTIST, artist, Gst.Tags.TITLE, title);
+			Gst.Event *evt = new Gst.Event.tag(list);
+
+
+			//I learned that the elements will probably ignore the bus message
+			//But that they will pay attention to this event
+			pipe.send_event(evt);
+			list->unref();
+			evt->unref();
 		}
 	}
 

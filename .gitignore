@@ -1,4 +1,5 @@
 debug.sh
+test.sh
 run.sh
 *.o
 *.lo

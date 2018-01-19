@@ -1,18 +1,24 @@
-Sorry, no time to document right now. Read the source code or email me.
+Tribblify is a program that streams a live PulseAudio source (either a physical sound card input like a microphone, or the monitor of an output sink) to a given Icecast or Shoutcast server.
+
+It doesn't *just* stream the PulseAudio audio data, though; it also extracts Spotify song title and artist information from the X11 window, so your stream is tagged.
 
 You need at least:
 
--Vala 0.14.0 or later
--Gstreamer 0.10.something (probably like 0.10.26?)
--Recent libmpdclient
--An mpd server
+-Vala 0.30.0 or later
+-Gstreamer 1.x
+-GDK 3.x
+-libwnck-3.0
 -An icecast or shoutcast server
+-PulseAudio 1.x or a later version that's supported by your gstreamer pulseaudio module
+-PulseAudio must be running and have at least one device, and you have to know that device's name at launch time of tribblify
+-The proprietary, official Spotify client for Linux (conceivably for other X11 based systems, but I don't think Spotify runs on any X11 operating system other than Linux right now)
 
 Q: Why did I write this?
 
-A: To push tags from mpd through this pipeline out-of-band.
+A: To push tags from Spotify through this pipeline out-of-band.
 
-http://tiyukquellmalz.org/sean/stream.svg
+## Development Note
 
-(This is my setup, and tribblify will replace the "gstreamer script" part.)
+Yes, previously, this program just pushed tags from mpd. Now it has been rewritten for Spotify specifically.
 
+The mpd code may be integrated back into this modernized codebase using gst-1.0, etc. at a later date.
