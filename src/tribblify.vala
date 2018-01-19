@@ -36,6 +36,9 @@ public class Main : GLib.Object
 	private Pipeline? pipe = null;
 	private Gst.Bus?  bus = null;
 	private Element?  pulsesrc = null;
+	private Gst.Caps? caps = null;
+	private Element?  capsfilter = null;
+	private Element?  audioconvert = null;
 	private Element?  lamemp3enc = null;
 	private Element?  shout2send = null;
 	private Element?  queue = null;
@@ -106,6 +109,15 @@ public class Main : GLib.Object
 		pulsesrc = ElementFactory.make("pulsesrc", "source");
 		pulsesrc.set("device", device);
 
+		//Gst.Caps object for audio with 2 channels
+		caps = Gst.Caps.from_string("audio/x-raw,channels=2");
+
+		//capsfilter ensures we get stereo (default is mono)
+		capsfilter = ElementFactory.make("capsfilter", "filter");
+		capsfilter.set("caps", caps);
+
+		audioconvert = ElementFactory.make("audioconvert", "convert");
+
 		//Set encoding parameters
 		lamemp3enc = ElementFactory.make("lamemp3enc", "encoder");
 		lamemp3enc.set("bitrate", bitrate);
@@ -131,10 +143,10 @@ public class Main : GLib.Object
 		}
 
 		//Add all the elements to the pipeline
-		pipe.add_many(pulsesrc, lamemp3enc, queue, shout2send);
+		pipe.add_many(pulsesrc, capsfilter, audioconvert, lamemp3enc, queue, shout2send);
 
 		//Link all the gstreamer elements together
-		pulsesrc.link_many(lamemp3enc, queue, shout2send);
+		pulsesrc.link_many(capsfilter, audioconvert, lamemp3enc, queue, shout2send);
 
 		//Ask Wnck for the latest tags and push them through the pipeline if they changed
 		//4000 msec = 4 seconds is the frequency of this by default.
