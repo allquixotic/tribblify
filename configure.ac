@@ -25,7 +25,8 @@ gstreamer-1.0
 glib-2.0
 gmodule-2.0
 gstreamer-tag-1.0
-gdk-3.0)
+gdk-3.0
+libsoup-2.4)
 
 
 AC_OUTPUT([

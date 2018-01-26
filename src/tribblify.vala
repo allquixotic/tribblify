@@ -25,9 +25,16 @@ using Wnck;
 
 extern void exit(int exit_code);
 
-public class Main : GLib.Object 
+public interface PitchSetter : GLib.Object {
+	public abstract void set_pitch_value(double d);
+}
+
+public class Main : GLib.Object, PitchSetter 
 {
 	private MainLoop? ml = null;
+
+	//Our HTTP server for controlling runtime tunables
+	private TunableServer? tunable     = null;
 	
 	//For libwnck
 	private Wnck.Screen? screen = null;
@@ -38,6 +45,7 @@ public class Main : GLib.Object
 	private Element?  pulsesrc = null;
 	private Gst.Caps? caps = null;
 	private Element?  capsfilter = null;
+	private Element?  pitch = null;
 	private Element?  audioconvert = null;
 	private Element?  lamemp3enc = null;
 	private Element?  shout2send = null;
@@ -47,6 +55,7 @@ public class Main : GLib.Object
 	private OptionContext? ctxt;
 	
 	//gstreamer tunables
+	private static bool useSoundtouch = false;
 	private static string? protocol = "icecast";
 	private static string? ip = "127.0.0.1";
 	private static int port = 8192;
@@ -54,6 +63,7 @@ public class Main : GLib.Object
 	private static string? mount = "/listen.mp3";
 	private static int bitrate = 128;
 	private static string? device = "output.monitor";
+	private static int tunablePort  = 17536;
 
 	//Wnck tunables
 	private static int tagpoll = 4000;
@@ -66,16 +76,18 @@ public class Main : GLib.Object
 
 	const OptionEntry[] entries =
 	{
-		{ "protocol",       'p',  0, OptionArg.STRING, ref protocol, "Protocol: shoutcast or icecast",   "proto_name"},
-		{ "shout-ip",       's',  0, OptionArg.STRING, ref ip,       "Shoutcast/icecast IP/hostname",    "hostname"},
-		{ "shout-port",     'o',  0, OptionArg.INT,    ref port,     "Shoutcast/icecast port",           "uint"},
-		{ "shout-password", 'd',  0, OptionArg.STRING, ref password, "Shoutcast/icecast password",       "password"},
-		{ "mount",          'm',  0, OptionArg.STRING, ref mount,    "Icecast mount point",              "mount"},
-		{ "bitrate",        'b',  0, OptionArg.INT,    ref bitrate,  "MP3 CBR bitrate",                  "uint"},
-		{ "device",         'i',  0, OptionArg.STRING, ref device,   "PulseAudio source",                "device"},
-		{ "wmClass",        'z',  0, OptionArg.STRING, ref wmClass,  "WM_CLASS group/class name of Spotify",              "wmClass"},
-		{ "screenId",       'r',  0, OptionArg.INT,    ref screenId,  "Xorg Screen ID",                  "uint"},
-		{ "tagpoll",        't',  0, OptionArg.INT,    ref tagpoll,  "Frequency of tag polling in msec", "uint"},
+		{ "protocol",       'p',  0, OptionArg.STRING, ref protocol,       "Protocol: shoutcast or icecast",                    "proto_name"},
+		{ "shout-ip",       's',  0, OptionArg.STRING, ref ip,             "Shoutcast/icecast IP/hostname",                     "hostname"},
+		{ "shout-port",     'o',  0, OptionArg.INT,    ref port,           "Shoutcast/icecast port",                            "uint"},
+		{ "shout-password", 'd',  0, OptionArg.STRING, ref password,       "Shoutcast/icecast password",                        "password"},
+		{ "mount",          'm',  0, OptionArg.STRING, ref mount,          "Icecast mount point",                               "mount"},
+		{ "bitrate",        'b',  0, OptionArg.INT,    ref bitrate,        "MP3 CBR bitrate",                                   "uint"},
+		{ "device",         'i',  0, OptionArg.STRING, ref device,         "PulseAudio source",                                 "device"},
+		{ "wmClass",        'z',  0, OptionArg.STRING, ref wmClass,        "WM_CLASS group/class name of Spotify",              "wmClass"},
+		{ "screenId",       'r',  0, OptionArg.INT,    ref screenId,       "Xorg Screen ID",                                    "uint"},
+		{ "tagpoll",        't',  0, OptionArg.INT,    ref tagpoll,        "Frequency of tag polling in msec",                  "uint"},
+		{ "soundtouch",     0,    0, OptionArg.NONE,   ref useSoundtouch,  "Enable pitch shifting (default disabled)",          null},
+		{ "tunablePort",    0,    0, OptionArg.INT,    ref tunablePort,    "Tunable HTTP server port",                          "uint"},
 		{null}
 	};
 
@@ -115,6 +127,13 @@ public class Main : GLib.Object
 		//capsfilter ensures we get stereo (default is mono)
 		capsfilter = ElementFactory.make("capsfilter", "filter");
 		capsfilter.set("caps", caps);
+
+		//Determine if we want to do soundtouch (pitch element)
+		if(useSoundtouch) {
+			tunable = new TunableServer(this as PitchSetter);
+			tunable.tunablePort = tunablePort;
+			pitch = ElementFactory.make("pitch", "pit");
+		}
 
 		audioconvert = ElementFactory.make("audioconvert", "convert");
 
@@ -177,11 +196,23 @@ public class Main : GLib.Object
 						status = "NO_PREROLL";
 						break;
 				}
+
+				if(status != "UNKNOWN" && status != "FAILURE" && useSoundtouch) {
+					//Only start if not failure and if we want to use Soundtouch, which is currently all we use tunables for
+					tunable.start(); 
+				}
+			
 				stderr.printf("Pipeline state set result: %s\n", status);
 				return false;
 			});
 
 		ml.run();
+	}
+
+	public void set_pitch_value(double d) {
+		if(pitch != null && d >= -10.0 && d <= 10.0) {
+			pitch.set("pitch", d);
+		}
 	}
 
 	private void parse_opts(string[] args)
