@@ -162,10 +162,21 @@ public class Main : GLib.Object, PitchSetter
 		}
 
 		//Add all the elements to the pipeline
-		pipe.add_many(pulsesrc, capsfilter, audioconvert, lamemp3enc, queue, shout2send);
+		pipe.add_many(pulsesrc, capsfilter);
+		if(useSoundtouch) pipe.add(pitch);
+		pipe.add_many(audioconvert, lamemp3enc, queue, shout2send);
 
 		//Link all the gstreamer elements together
-		pulsesrc.link_many(capsfilter, audioconvert, lamemp3enc, queue, shout2send);
+		pulsesrc.link(capsfilter);
+
+		//Need to rewrite this into some kind of loop over the elements for maintainability
+		if(useSoundtouch) {
+			capsfilter.link(pitch);
+			pitch.link_many(audioconvert, lamemp3enc, queue, shout2send);
+		}
+		else {
+			capsfilter.link_many(audioconvert, lamemp3enc, queue, shout2send);
+		}
 
 		//Ask Wnck for the latest tags and push them through the pipeline if they changed
 		//4000 msec = 4 seconds is the frequency of this by default.
