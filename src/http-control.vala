@@ -40,17 +40,12 @@ public class TunableServer : Soup.Server
 		}
 	 }
 
-	 private static void handler(Soup.Server server, Soup.Message msg, string path, GLib.HashTable? query, Soup.ClientContext client) {
+	 private static void handler(Soup.Server server, Soup.Message msg, string path, GLib.HashTable<unowned string, unowned string>? query, Soup.ClientContext client) {
 		unowned TunableServer self = server as TunableServer;
 		Timeout.add(0, () => {
-			URI uri = msg.get_uri();
-			string _query = uri.get_query();
-
-			//Parse the query and handle pitch
-			HashTable<unowned string,unowned string> queryTable = Soup.Form.decode(_query);
-			if(queryTable.contains("pitch")) {
-				unowned string pitch = queryTable.get("pitch");
-				double p = 0.0;
+			if(query.contains("pitch")) {
+				unowned string pitch = query.get("pitch");
+				double p = 0.0d;
 				if(double.try_parse(pitch, out p) && self.setter != null) {
 					self.setter.set_pitch_value(p);
 				}
